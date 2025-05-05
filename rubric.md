@@ -42,32 +42,7 @@
 •	Delivery: confident, clear speech; well-prepared (2pts)
 •	Q&A: thoughtful responds (6pts)
 
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Assessment of Teammate (a total of 6 pts)
+### Assessment of Teammate (a total of 6 pts)
 Please score each team member from 1 (superlative) to 10 (unacceptable): 
 •	Contribution to planning (1pt)
 •	fulfill assigned task (1pt)
@@ -76,7 +51,7 @@ Please score each team member from 1 (superlative) to 10 (unacceptable):
 •	pro-activeness (1pt)
 •	1-3 sentences of each teammate's role (1pt)
 
-Assess Another Team (a total of 14 pts)
+### Assess Another Team (a total of 14 pts)
 Score your assigned team's code & paper. 
 Paper: 
 •	did it address task 1 (1pt)
