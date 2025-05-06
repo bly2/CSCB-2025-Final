@@ -10,6 +10,7 @@ from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
 from scipy.spatial.distance import cdist
 from hmmlearn import hmm
+import itertools
 import warnings
 
 # Functions
@@ -52,6 +53,9 @@ def fetch_positions(adata):
 
     # Include obs into the cleaned adata
     adClean.obs = with_positions.obs.copy()
+
+    # Sort adata by chromosome and start position
+    adClean = adClean[:,adClean.var.sort_values(by=['chromosome','start']).index].copy()
 
     return adClean
 
@@ -187,35 +191,184 @@ def downsample(adata,n_cells):
     else:
         return adata[np.random.choice(adata.obs_names, n_cells, replace=False), :].copy()
     
-def cnv_plots(adata,annotation='cell_type'):
-    cnv.tl.pca(adata)
-    cnv.pp.neighbors(adata)
-    cnv.tl.leiden(adata)
+def plot_aneuploid_cnv_clusters(adata,diploid_annotation='predicted_diploid'):
+    adata_aneuploid = adata[adata.obs['predicted_diploid']=='aneuploid']
 
-    sc.tl.dendrogram(adata, groupby='cnv_leiden')
+    cnv.tl.pca(adata_aneuploid)
+    cnv.pp.neighbors(adata_aneuploid)
+    cnv.tl.leiden(adata_aneuploid)
 
-    cnv.tl.umap(adata)
-    cnv.tl.cnv_score(adata)
+    sc.tl.dendrogram(adata_aneuploid, groupby='cnv_leiden')
+
+    cnv.tl.umap(adata_aneuploid)
+    cnv.tl.cnv_score(adata_aneuploid)
 
 
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(11, 11))
     ax4.axis("off")
     cnv.pl.umap(
-        adata,
+        adata_aneuploid,
         color="cnv_leiden",
         legend_loc="on data",
         legend_fontoutline=2,
         ax=ax1,
         show=False,
     )
-    cnv.pl.umap(adata, color="cnv_score", ax=ax2, show=False)
-    cnv.pl.umap(adata, color="cell_type", ax=ax3)
+    cnv.pl.umap(adata_aneuploid, color="cnv_score", ax=ax2, show=False)
+    cnv.pl.umap(adata_aneuploid, color="cell_type", ax=ax3)
 
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 11), gridspec_kw={"wspace": 0.5})
-    ax4.axis("off")
-    sc.pl.umap(adata, color="cnv_leiden", ax=ax1, show=False)
-    sc.pl.umap(adata, color="cnv_score", ax=ax2, show=False)
-    sc.pl.umap(adata, color="cell_type", ax=ax3)
+def i3_hmm_infercnv(adata,cell_type,cell_annotation='cell_type',diploid_annotation='predicted_diploid',logFC_threshold=0.5,plots=True):
+    # Approach similar to 3-state Hidden Markov Model used by the R version of InferCNV to detect genomic regions
+
+    # Transition matrix (3x3) for states: Deletion (0.5), Neutral (1), Amplification (1.5)
+    # The transition matrix defines the probability of moving from one state to another. Here, the states are:
+    # 0 (Deletion), 1 (Neutral), and 2 (Amplification). The values indicate the transition probabilities between these states.
+
+    transition_matrix = np.array([
+        [1 - 5 * 0.000001, 0.000001, 0.000001],  # Transition probabilities for state 0 (Deletion)
+        [0.000001, 1 - 5 * 0.000001, 0.000001],  # Transition probabilities for state 1 (Neutral)
+        [0.000001, 0.000001, 1 - 5 * 0.000001]   # Transition probabilities for state 2 (Amplification)
+    ])
+
+    # Mean expression values for each state (Deletion, Neutral, Amplification)
+    means = np.array([0.5, 1.0, 1.5])
+
+    # Covariance values for each state, ensuring they are at least 1e-6 to avoid numerical issues
+    covariances = np.maximum(np.array([[0.1], [0.1], [0.1]]), 1e-6)
+
+    # Adata subsetting
+    adata_cells = adata[adata.obs[cell_annotation] == cell_type ] 
+    diploid_mask = adata_cells.obs['predicted_diploid'] == 'diploid'
+    aneuploid_mask = adata_cells.obs['predicted_diploid'] == 'aneuploid'
+
+    exp_all = adata_cells.X.toarray()
+
+    # Compute the diploid reference profile by averaging the expression of diploid cells
+    ref_profile = exp_all[diploid_mask].mean(axis=0)
+
+    # Get expression data for aneuploid cells over the background reference
+    expX = np.log1p(exp_all[aneuploid_mask] / (ref_profile + 1e-6))
+
+    # Initialize the Hidden Markov Model (HMM) with 3 states (Deletion, Neutral, Amplification)
+    model = hmm.GaussianHMM(n_components=3, covariance_type="diag", init_params="")
+
+    # Initialize the starting probabilities for each state. Here, all states have equal probability to start with.
+    model.startprob_ = np.array([1/3, 1/3, 1/3])
+
+    # Set the transition matrix and emission probabilities (means and covariances) for the model
+    model.transmat_ = transition_matrix
+    model.means_ = means.reshape(-1, 1)  # Reshape means to match HMM expectations
+    model.covars_ = covariances  # Set covariances for the states
+
+    # Prepare lists to store the predicted CNV levels and states for each cell
+    cnv_states_all = []
+    predicted_cnv_all = []
+
+    # Define CNV levels based on the hidden states: 0 -> Deletion, 1 -> Neutral, 2 -> Amplification
+    cnv_levels = {0: 0.5, 1: 1.0, 2: 1.5}
+
+    # Compute the mean expression across genes (used to filter out low-mean genes)
+    gene_means = np.mean(expX, axis=0)
+
+    # Select genes that have a mean expression greater than LogFC threshold
+    genes_to_keep = gene_means > 0.5
+    expX = expX[:, genes_to_keep]
+
+    # Recompute gene means after filtering, add a small epsilon to avoid division by zero
+    gene_means = np.mean(expX, axis=0) + 1e-6
+
+    # Normalize the expression data by dividing by the gene means
+    expX = expX / gene_means
+
+    # adata to keep track of gene order
+    adata_filtered = adata_cells[aneuploid_mask].copy()
+    adata_filtered = adata_filtered[:,genes_to_keep]
+
+    # Iterate through each cell's expression data and predict the CNV states using the HMM model
+    for cell_expr in expX:
+        cell_expr = cell_expr.reshape(-1, 1)  # Reshape for HMM input (each cell's data is one sample)
+        hidden_states = model.predict(cell_expr)  # Predict the hidden states (CNV states) for the cell
+        predicted_cnv = np.array([cnv_levels[state] for state in hidden_states])  # Map states to CNV levels
+        predicted_cnv_all.append(predicted_cnv)  # Store the predicted CNV levels for this cell
+        cnv_states_all.append(hidden_states)  # Store the predicted hidden states for this cell
+
+    # Convert the list of predicted CNV levels to a numpy array
+    predicted_cnv_all = np.array(predicted_cnv_all)
+
+    if plots:
+        # Plot a heatmap showing the predicted CNV levels across cells and genes
+        plt.figure(figsize=(12, 8))
+        plt.imshow(predicted_cnv_all, aspect='auto', cmap='coolwarm', interpolation='none')
+        plt.colorbar(label='CNV Level')
+        plt.xlabel("Genes")
+        plt.ylabel("Cells")
+        plt.title(f"Predicted {cell_type} CNV Heatmap")
+        plt.show()
+
+        # Plot the distribution of normalized expression values to visualize the data spread
+        plt.hist(expX.flatten(), bins=100)
+        plt.title("Filtered + normalized expression distribution")
+        plt.show()
+
+    adata_filtered.layers['cnv_hmm'] = predicted_cnv_all
+
+    # Add row wise means of hmm cnv matrix as cnv scores to adata_filtered.obs
+    adata_filtered.obs['hmm_cnv_score'] = predicted_cnv_all.mean(axis=1)
+
+    # Decide a threshold margin above and below hmm_cnv_score=1 to decide if it's a CNV or not
+    threshold_margin = 0.05
+    gain_mask = adata_filtered.obs['hmm_cnv_score']>(1+threshold_margin)
+    loss_mask = adata_filtered.obs['hmm_cnv_score']<(1-threshold_margin)
+
+    adata_filtered.obs['hmm_cnv'] = np.select([gain_mask,loss_mask], ['gain', 'loss'], default='')
+
+    for cell_idx in range(predicted_cnv_all.shape[0]):
+        cnv_type = adata_filtered.obs['hmm_cnv'][cell_idx]
+        if cnv_type == 'gain':
+            # Find gene indices that stay longest in 1.5
+            value = 1.5
+        elif cnv_type == 'loss':
+            # Find gene indices that stay longest in 0.5
+            value = 0.5
+        else:
+            continue
+
+        # Keep finding longest region until start and end are on the same chromosome
+        # In case the found indices lie on 2 different chromosomes
+        chr_start,chr_end = 'a','b'
+        start_idx = 0
+        end_idx = len(predicted_cnv_all[cell_idx])
+
+        while chr_start != chr_end:
+            # Get indices of longest repeated value
+            start_idx,end_idx = get_indices_repeated_value(predicted_cnv_all[cell_idx][start_idx:end_idx],value)
+
+            # Get chromosome and region information for indices
+            chr_start = adata_filtered.var['chromosome'][start_idx]
+            chr_end = adata_filtered.var['chromosome'][end_idx]
+            start = adata_filtered.var['start'][start_idx]
+            end = adata_filtered.var['end'][end_idx]
+
+        adata_filtered.obs['hmm_cnv'][cell_idx] = f'{chr_start}:{start}-{end} ({cnv_type})'
+
+    return adata_filtered
+
+def get_indices_repeated_value(arr,value):
+    max_len = 0
+    start_index = -1
+    end_index = -1
+    index = 0
+
+    for val, group in itertools.groupby(arr):
+        group_list = list(group)
+        length = len(group_list)
+        if val == value and length > max_len:
+            max_len = length
+            start_index = index
+            end_index = index + length - 1
+        index += length
+
+    return start_index, end_index
 
 def extract_cnv_info(cnv_annotation):
     if cnv_annotation:
@@ -227,3 +380,10 @@ def extract_cnv_info(cnv_annotation):
             cnv_type = parts[-1].strip("()")
             return cnv_chr,cnv_start,cnv_end,cnv_type
     return None, None
+
+def assess_predicted_cnvs(adata,prediction_annotation='hmm_cnv',true_annotation='simulated_cnvs'):
+    prediction = [extract_cnv_info(cnv)[-1] for cnv in adata.obs[prediction_annotation]]
+    truth = ['loss' if extract_cnv_info(cnv)[-1].isin(['CN0','CN1']) else 
+             'gain' if extract_cnv_info(cnv)[-1]=='CN4' else ''
+             for cnv in adata.obs[prediction_annotation]]
+    return prediction,truth
