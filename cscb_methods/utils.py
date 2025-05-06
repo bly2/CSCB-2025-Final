@@ -218,6 +218,19 @@ def plot_aneuploid_cnv_clusters(adata,diploid_annotation='predicted_diploid'):
     cnv.pl.umap(adata_aneuploid, color="cell_type", ax=ax3)
 
 def i3_hmm_infercnv(adata,cell_type,cell_annotation='cell_type',diploid_annotation='predicted_diploid',logFC_threshold=0.5,plots=True):
+    """ Our main CNV inference approach, utilizing a 3-state Hidden Markov Models like InferCNV to detect the CNV state of a cell (deletion, neutral, amplification) and extract genomic region information and CNV type.
+
+    Args:
+        adata (AnnData): AnnData with annotated .obs columns for cell type and diploid/aneuploid cells.
+        cell_type (_type_): _description_
+        cell_annotation (str, optional): _description_. Defaults to 'cell_type'.
+        diploid_annotation (str, optional): _description_. Defaults to 'predicted_diploid'.
+        logFC_threshold (float, optional): _description_. Defaults to 0.5.
+        plots (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: _description_
+    """    
     # Approach similar to 3-state Hidden Markov Model used by the R version of InferCNV to detect genomic regions
 
     # Transition matrix (3x3) for states: Deletion (0.5), Neutral (1), Amplification (1.5)
@@ -354,6 +367,15 @@ def i3_hmm_infercnv(adata,cell_type,cell_annotation='cell_type',diploid_annotati
     return adata_filtered
 
 def get_indices_repeated_value(arr,value):
+    """ Finds the start and end index of the genomic region contained within a single chromosome that stays in a specified state the longest.
+
+    Args:
+        arr (list): list of HMM states per gene
+        value (float): HMM state to target depending on gain (1.5) or loss (0.5)
+
+    Returns:
+        int tuple: start and end index
+    """    
     max_len = 0
     start_index = -1
     end_index = -1
@@ -371,6 +393,14 @@ def get_indices_repeated_value(arr,value):
     return start_index, end_index
 
 def extract_cnv_info(cnv_annotation):
+    """ Splits a CNV annotation into chromosome, start, end, and type.
+
+    Args:
+        cnv_annotation (str): chr:start-end (type)
+
+    Returns:
+        str tuple: chromosome, start, end, type
+    """    
     if cnv_annotation:
         parts = cnv_annotation.split(" ")
         if len(parts) > 1:
@@ -378,12 +408,36 @@ def extract_cnv_info(cnv_annotation):
             cnv_start = parts[0].split(':')[1].split('-')[0]
             cnv_end = parts[0].split(':')[1].split('-')[1]
             cnv_type = parts[-1].strip("()")
+            if cnv_type == '1' or cnv_type == '0':
+                cnv_type = 'loss'
+            elif cnv_type == '4':
+                cnv_type == 'gain'
             return cnv_chr,cnv_start,cnv_end,cnv_type
     return None, None
 
-def assess_predicted_cnvs(adata,prediction_annotation='hmm_cnv',true_annotation='simulated_cnvs'):
-    prediction = [extract_cnv_info(cnv)[-1] for cnv in adata.obs[prediction_annotation]]
-    truth = ['loss' if extract_cnv_info(cnv)[-1].isin(['CN0','CN1']) else 
-             'gain' if extract_cnv_info(cnv)[-1]=='CN4' else ''
-             for cnv in adata.obs[prediction_annotation]]
-    return prediction,truth
+def assess_predicted_cnvs(adata,prediction_annotation='hmm_cnv',truth_annotation='simulated_cnvs'):
+    """ Prints precision, recall, accuracy, and F1 score of predicted CNV types
+
+    Args:
+        adata (AnnData): AnnData object with both simulated CNVs and predicted CNVs annotated
+        prediction_annotation (str, optional): .obs column for predictions cnvs. Defaults to 'hmm_cnv'.
+        truth_annotation (str, optional): .obs column for simulated cnvs. Defaults to 'simulated_cnvs'.
+    """    
+    truth = [extract_cnv_info(cnv)[-1] if cnv!='' else '' for cnv in adata.obs[truth_annotation]]
+    prediction = [extract_cnv_info(cnv)[-1] if cnv!='' else '' for cnv in adata.obs[prediction_annotation]]
+    df = pd.DataFrame({'truth':truth,'prediction':prediction})
+    
+    TP = ((df['truth'] == df['prediction']) & (df['truth'].isin(['gain', 'loss']))).sum()
+    FP = ((df['truth'] == '') & (df['prediction'].isin(['gain', 'loss']))).sum()
+    FN = ((df['truth'].isin(['gain', 'loss'])) & (df['prediction'] == '')).sum()
+    TN = ((df['truth'] == '') & (df['prediction'] == '')).sum()
+
+    precision = TP/(TP+FP)
+    recall = TP/(TP+FN)
+    accuracy = (TP+TN)/(TP+FN+TN+FP)
+    F1_score = 2*precision*recall/(precision+recall)
+
+    print(f'Precision: {precision}')
+    print(f'Recall: {recall}')
+    print(f'Accuracy: {accuracy}')
+    print(f'F1 score: {F1_score}')
