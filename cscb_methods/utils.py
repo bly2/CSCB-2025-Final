@@ -77,6 +77,69 @@ def fetch_positions(adata):
 
     return adClean
 
+
+def fetch_positions_new(adata, batch_size=200):
+    """
+    Annotate genes in `adata` with chromosome position info from Ensembl BioMart (GRCh37).
+    Fills missing ['chromosome', 'start', 'end', 'strand'] in `.var`, in batches.
+    """
+
+    # Connect to Ensembl Biomart server
+    server = BiomartServer("http://grch37.ensembl.org/biomart")
+    dataset = server.datasets['hsapiens_gene_ensembl']
+
+    # Separate genes with and without positions
+    no_positions = adata[:, adata.var[['start', 'end']].isna().any(axis=1)].copy()
+    with_positions = adata[:, ~adata.var[['start', 'end']].isna().any(axis=1)].copy()
+
+    # Get gene_ids to query
+    gene_ids = no_positions.var['gene_ids'].dropna().unique().tolist()
+
+    # Fetch annotations in batches
+    fetched = []
+    for i in range(0, len(gene_ids), batch_size):
+        batch = gene_ids[i:i + batch_size]
+        try:
+            response = dataset.search({
+                'filters': {'ensembl_gene_id': batch},
+                'attributes': ['ensembl_gene_id', 'chromosome_name', 'start_position', 'end_position', 'strand']
+            })
+
+            df = pd.read_csv(StringIO(response.text), sep='\t', header=None)
+            df.columns = ['gene_ids', 'chromosome', 'start', 'end', 'strand']
+            fetched.append(df)
+        except Exception as e:
+            print(f"Batch {i} failed: {e}")
+
+    # Combine and merge fetched results
+    if not fetched:
+        print("No annotations fetched.")
+        return adata
+
+    gene_annotations_df = pd.concat(fetched, ignore_index=True)
+
+    # Filter and sort no_position genes found in fetched set
+    is_fetched = no_positions.var['gene_ids'].isin(gene_annotations_df['gene_ids'])
+    fetched_positions = no_positions[:, is_fetched].copy()
+    sorted_idx = fetched_positions.var['gene_ids'].argsort()
+    fetched_positions = fetched_positions[:, sorted_idx].copy()
+
+    # Map fetched annotations into .var
+    gene_annotations_df = gene_annotations_df.set_index(fetched_positions.var.index)
+    for col in ['chromosome', 'start', 'end', 'strand']:
+        fetched_positions.var[col] = gene_annotations_df[col].values
+
+    # Combine with already-positioned genes
+    adClean = ad.concat([with_positions, fetched_positions], axis=1)
+    adClean.obs = adata.obs.copy()
+
+    # Optional: sort by chromosome + start
+    if 'chromosome' in adClean.var.columns and 'start' in adClean.var.columns:
+        adClean = adClean[:, adClean.var.sort_values(['chromosome', 'start']).index].copy()
+
+    return adClean
+
+
 def standardize_chromosomes(adata):
     
     adata1 = adata.copy()
