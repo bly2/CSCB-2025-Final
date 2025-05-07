@@ -17,5 +17,7 @@ Initial benchmarking to be done on PBMC dataset with simulated CNVs:
 Further testing of methods to be done on 3 selected PSC datasets:
 
 inferCNV of the Trinity CTAT Project.  https://github.com/broadinstitute/inferCNV
+
 inferCNVpy. https://github.com/icbi-lab/infercnvpy
+
 CopyKAT of Navin Lab at MD Anderson. https://github.com/navinlabcode/copykat
