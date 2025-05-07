@@ -16,12 +16,14 @@ import warnings
 # Functions
 
 def merge_gene_positions(query_adata, ref_adata, gene_colname="gene_ids"):
-    '''
-    Update gene positions (chromosome, start, end, strand) in the un-annotated dataset with gene positions 
-    from an annotated dataset (ref_ad). 
-    Also input the name of column containing gene names/ids in gene_colname. It should be the same in both dfs.
-    Updates the query_adata, does not return a new object.
-    '''
+    """ Update gene positions (chromosome, start, end, strand) in the un-annotated dataset with gene positions from an annotated dataset (ref_ad).
+    Also input the name of column containing gene names/ids in gene_colname for both dfs. Updates query_adata.
+
+    Args:
+        query_adata (AnnData): Query AnnData object.
+        ref_adata (AnnData): Reference AnnData object
+        gene_colname (str, optional): Column name for gene names. Defaults to "gene_ids".
+    """    
     # get all positions from reference dataset
     ref_pos = ref_adata.var.loc[:, [gene_colname, "chromosome", "start", "end", "strand"]]
 
@@ -33,6 +35,15 @@ def merge_gene_positions(query_adata, ref_adata, gene_colname="gene_ids"):
 
     
 def fetch_positions(adata):
+    """ Old function. Annotate genes in AnnData with chromosome, start and end position, and strand info from Ensembl BioMart (GRCh37).
+
+    Args:
+        adata (AnnData): AnnData object.
+        batch_size (int, optional): Fill missing .var information in batches of this size. Defaults to 200.
+
+    Returns:
+        AnnData: AnnData object with chromosome, start, end, and strand in .var.
+    """    
     # Connect to Ensembl Biomart server
     server = BiomartServer("http://grch37.ensembl.org/biomart")
     dataset = server.datasets['hsapiens_gene_ensembl']
@@ -79,10 +90,15 @@ def fetch_positions(adata):
 
 
 def fetch_positions_new(adata, batch_size=200):
-    """
-    Annotate genes in `adata` with chromosome position info from Ensembl BioMart (GRCh37).
-    Fills missing ['chromosome', 'start', 'end', 'strand'] in `.var`, in batches.
-    """
+    """ New function. Annotate genes in AnnData with chromosome, start and end position, and strand info from Ensembl BioMart (GRCh37).
+
+    Args:
+        adata (AnnData): AnnData object.
+        batch_size (int, optional): Fill missing .var information in batches of this size. Defaults to 200.
+
+    Returns:
+        AnnData: AnnData object with chromosome, start, end, and strand in .var.
+    """    
 
     # Connect to Ensembl Biomart server
     server = BiomartServer("http://grch37.ensembl.org/biomart")
@@ -141,6 +157,14 @@ def fetch_positions_new(adata, batch_size=200):
 
 
 def standardize_chromosomes(adata):
+    """ Ensures chromosomes in adata.var are notated the same way (chrX) and removes any non-standard chromosomes.
+
+    Args:
+        adata (AnnData): AnnData object with "chromosome" column in adata.obs
+
+    Returns:
+        AnnData: AnnData object with standardized chromosomes.
+    """    
     
     adata1 = adata.copy()
 
@@ -160,6 +184,18 @@ def qc(adata,
     min_genes=200,
     max_counts=50000,
     min_cells=3):
+    """ QC steps for filtering MT genes and gene/cell counts.
+
+    Args:
+        adata (AnnData): AnnData object
+        mt_threshold_pct (int, optional): Minimum MT percent threshold. Defaults to 20.
+        min_genes (int, optional): Minimum genes in a cell threshold. Defaults to 200.
+        max_counts (int, optional): Maximum counts threshold. Defaults to 50000.
+        min_cells (int, optional): Minimum cells per gene threshold. Defaults to 3.
+
+    Returns:
+        _type_: _description_
+    """    
 
     adata1 = adata.copy()
 
@@ -185,10 +221,14 @@ def qc(adata,
     return adClean
 
 def log_freeman_tukey_transform(expr_mat):
-    """
-    Freeman-Tukey variance stabilizing transformation:
-    log2(sqrt(x) + sqrt(x+1))
-    """
+    """ Freeman-Turkey variance stabilizing transformation: log2(sqrt(x) + sqrt(x+1))
+
+    Args:
+        expr_mat (matrix): Gene expression matrix from AnnData.
+
+    Returns:
+        matrix: Transformed gene expression matrix.
+    """    
     return np.log2(np.sqrt(expr_mat) + np.sqrt(expr_mat + 1))
 
 def identify_diploid_cells_high_precision(adata,
@@ -197,12 +237,20 @@ def identify_diploid_cells_high_precision(adata,
                                            n_pcs=20,
                                            primary_trim_percentile=100,
                                            secondary_trim_percentile=30):
-    """
-    Identify diploid cells by:
-    - Selecting lowest-variance GMM cluster (primary)
-    - Adding central portion of second-lowest variance cluster (secondary)
-    - Based on PCA + GMM and genomic smoothing
-    """
+    """ Identify diploid cells. First selects lowest-variance GMM cluster. Adds central portion of second-lowest variance cluster.
+    Predicts diploid cells based on PCA, GMM, and genomic smoothing.
+
+    Args:
+        adata (AnnData): AnnData object
+        window (int, optional): Window size for genomic smoothing. Defaults to 10.
+        n_components (int, optional): Number of components. Defaults to 3.
+        n_pcs (int, optional): Number of principal components. Defaults to 20.
+        primary_trim_percentile (int, optional): Percentile cutoff for highest variance cluster. Defaults to 100.
+        secondary_trim_percentile (int, optional): Percentile cutoff for 2nd highest variance cluster. Defaults to 30.
+
+    Returns:
+        list: Diploid/aneuploid predictions for cells and labels
+    """    
     expr_raw = adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X
     expr_df = pd.DataFrame(expr_raw, index=adata.obs_names, columns=adata.var_names)
     gene_order = adata.var.sort_values(['chromosome', 'start']).index
@@ -253,10 +301,15 @@ def identify_diploid_cells_high_precision(adata,
     return diploid_pred, labels
 
 def evaluate_predictions(adata, diploid_pred):
-    """
-    Compare predicted diploids vs. simulated CNV ground truth.
-    Returns: precision, recall, F1 score.
-    """
+    """ Compare predicted diploids vs. simulated CNV ground truth.
+
+    Args:
+        adata (AnnData): AnnData object with ground truth column (simulated CNVs) and prediction column for aneuploid/diploid.
+        diploid_pred (list): List of predictions of aneuploid/diploid for cells.
+
+    Returns:
+        float tuple: Precision, recall, F1 score.
+    """    
     true_diploid = adata.obs['simulated_cnvs'].astype(str).replace(['', 'nan', 'NaN'], np.nan).isna()
     tp = np.sum((diploid_pred == True) & (true_diploid == True))
     fp = np.sum((diploid_pred == True) & (true_diploid == False))
@@ -267,12 +320,27 @@ def evaluate_predictions(adata, diploid_pred):
     return precision, recall, f1
 
 def downsample(adata,n_cells):
+    """ Randomly downsamples an AnnData object
+
+    Args:
+        adata (AnnData): AnnData object.
+        n_cells (int): Number of cells to downsample to.
+
+    Returns:
+        AnnData: Downsampled AnnData object
+    """    
     if adata.n_obs <= n_cells:
         return adata
     else:
         return adata[np.random.choice(adata.obs_names, n_cells, replace=False), :].copy()
     
 def plot_aneuploid_cnv_clusters(adata,diploid_annotation='predicted_diploid'):
+    """ Perform clustering for CNV groups and plot UMAP of CNV and cell_type clusters, filtered to aneuploid predicted cells.
+
+    Args:
+        adata (AnnData): AnnData object after running InferCNV.
+        diploid_annotation (str, optional): .obs column for aneuploid/diploid predictions. Defaults to 'predicted_diploid'.
+    """    
     adata_aneuploid = adata[adata.obs['predicted_diploid']=='aneuploid']
 
     cnv.tl.pca(adata_aneuploid)
@@ -303,14 +371,14 @@ def i3_hmm_infercnv(adata,cell_type,cell_annotation='celltype',diploid_annotatio
 
     Args:
         adata (AnnData): AnnData with annotated .obs columns for cell type and diploid/aneuploid cells.
-        cell_type (_type_): _description_
-        cell_annotation (str, optional): _description_. Defaults to 'cell_type'.
-        diploid_annotation (str, optional): _description_. Defaults to 'predicted_diploid'.
-        logFC_threshold (float, optional): _description_. Defaults to 0.5.
-        plots (bool, optional): _description_. Defaults to True.
+        cell_type (str): Cell type of interest for data filtering
+        cell_annotation (str, optional): Column of adata.obs for cell type. Defaults to 'cell_type'.
+        diploid_annotation (str, optional): Column of adata.obs for diploid/aneuploid predictions. Defaults to 'predicted_diploid'.
+        logFC_threshold (float, optional): Minimum mean logFC of a gene to keep. Defaults to 0.5.
+        plots (bool, optional): Plot heatmap of HMM states and distribution of expression. Defaults to True.
 
     Returns:
-        _type_: _description_
+        adata: AnnData with annotated .obs column hmm_cnv with predicted genomic region and type.
     """    
     # Approach similar to 3-state Hidden Markov Model used by the R version of InferCNV to detect genomic regions
 
@@ -340,7 +408,7 @@ def i3_hmm_infercnv(adata,cell_type,cell_annotation='celltype',diploid_annotatio
     # Compute the diploid reference profile by averaging the expression of diploid cells
     ref_profile = exp_all[diploid_mask].mean(axis=0)
 
-    # Get expression data for aneuploid cells over the background reference
+    # Get logFC of expression for aneuploid cells over the background reference
     expX = np.log1p(exp_all[aneuploid_mask] / (ref_profile + 1e-6))
 
     # Initialize the Hidden Markov Model (HMM) with 3 states (Deletion, Neutral, Amplification)
