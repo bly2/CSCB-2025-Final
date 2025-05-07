@@ -296,9 +296,9 @@ def plot_aneuploid_cnv_clusters(adata,diploid_annotation='predicted_diploid'):
         show=False,
     )
     cnv.pl.umap(adata_aneuploid, color="cnv_score", ax=ax2, show=False)
-    cnv.pl.umap(adata_aneuploid, color="cell_type", ax=ax3)
+    cnv.pl.umap(adata_aneuploid, color="celltype", ax=ax3)
 
-def i3_hmm_infercnv(adata,cell_type,cell_annotation='cell_type',diploid_annotation='predicted_diploid',logFC_threshold=0.5,plots=True):
+def i3_hmm_infercnv(adata,cell_type,cell_annotation='celltype',diploid_annotation='predicted_diploid',logFC_threshold=0.5,plots=True):
     """ Our main CNV inference approach, utilizing a 3-state Hidden Markov Models like InferCNV to detect the CNV state of a cell (deletion, neutral, amplification) and extract genomic region information and CNV type.
 
     Args:
