@@ -482,19 +482,20 @@ def extract_cnv_info(cnv_annotation):
     Returns:
         str tuple: chromosome, start, end, type
     """    
-    if cnv_annotation:
-        parts = cnv_annotation.split(" ")
-        if len(parts) > 1:
-            cnv_chr = parts[0].split(":")[0]
-            cnv_start = parts[0].split(':')[1].split('-')[0]
-            cnv_end = parts[0].split(':')[1].split('-')[1]
-            cnv_type = parts[-1].strip("()")
-            if cnv_type == '1' or cnv_type == '0':
-                cnv_type = 'loss'
-            elif cnv_type == '4':
-                cnv_type == 'gain'
-            return cnv_chr,cnv_start,cnv_end,cnv_type
-    return None, None
+    if cnv_annotation=='gain' or cnv_annotation=='loss':
+        return [cnv_annotation]
+    parts = cnv_annotation.split(" ")
+    if len(parts) > 1:
+        cnv_chr = parts[0].split(":")[0]
+        cnv_start = parts[0].split(':')[1].split('-')[0]
+        cnv_end = parts[0].split(':')[1].split('-')[1]
+        cnv_type = parts[-1].strip("()")
+        if cnv_type == '1' or cnv_type == '0':
+            cnv_type = 'loss'
+        if cnv_type == '4':
+            cnv_type = 'gain'
+        return cnv_chr,cnv_start,cnv_end,cnv_type
+    return ''
 
 def assess_predicted_cnvs(adata,prediction_annotation='hmm_cnv',truth_annotation='simulated_cnvs'):
     """ Prints precision, recall, accuracy, and F1 score of predicted CNV types
