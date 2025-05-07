@@ -14,6 +14,24 @@ import itertools
 import warnings
 
 # Functions
+
+def merge_gene_positions(query_adata, ref_adata, gene_colname="gene_ids"):
+    '''
+    Update gene positions (chromosome, start, end, strand) in the un-annotated dataset with gene positions 
+    from an annotated dataset (ref_ad). 
+    Also input the name of column containing gene names/ids in gene_colname. It should be the same in both dfs.
+    Updates the query_adata, does not return a new object.
+    '''
+    # get all positions from reference dataset
+    ref_pos = ref_adata.var.loc[:, [gene_colname, "chromosome", "start", "end", "strand"]]
+
+    # merge
+    pos_overlap = pd.merge(query_adata.var, ref_pos, on=gene_colname, how="left")
+
+    # assign to query datasets .var object
+    query_adata.var = pos_overlap
+
+    
 def fetch_positions(adata):
     # Connect to Ensembl Biomart server
     server = BiomartServer("http://grch37.ensembl.org/biomart")
