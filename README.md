@@ -24,6 +24,8 @@ To install, please download the cscb_methods folder from our repository and stor
 from cscb_methods import *
 ```
 
+Please kindly refer to ```benchmark_PBMC.ipynb``` for the workflow.
+
 inferCNV of the Trinity CTAT Project.  https://github.com/broadinstitute/inferCNV
 
 inferCNVpy. https://github.com/icbi-lab/infercnvpy
