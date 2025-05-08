@@ -24,7 +24,11 @@ To install, please download the cscb_methods folder from our repository and stor
 from cscb_methods import *
 ```
 
-Please kindly refer to ```benchmark_PBMC.ipynb``` for the workflow.
+Please kindly refer to ```benchmark_PBMC.ipynb``` for the workflow. In summary:
+
+- Ensure chromosomes have standardized names and contain position data from Biomart.
+- Perform QC steps, normalize, log transform, and/or downsample as necessary.
+- 3 state HMM function will return a new AnnData with results in ```adata.obs['hmm_cnv]```. It needs to contain a column for diploid/aneuploid predictions in .obs and an input for cell type to focus on.
 
 inferCNV of the Trinity CTAT Project.  https://github.com/broadinstitute/inferCNV
 
