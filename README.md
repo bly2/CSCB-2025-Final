@@ -14,7 +14,15 @@ Initial benchmarking to be done on PBMC dataset with simulated CNVs:
 - Partial/heterozygous loss for CD14 monocytes on Chr22
 - Total/homozygous loss for CD14 monocytes on Chr6
 
-Further testing of methods to be done on 3 selected PSC datasets:
+Further testing of methods to be done on 3 selected PSC datasets.
+
+### How to install and use
+
+To install, please download the cscb_methods folder from our repository and store it in your working directory alongside your datasets. Import our methods:
+
+``` py
+from cscb_methods import *
+```
 
 inferCNV of the Trinity CTAT Project.  https://github.com/broadinstitute/inferCNV
 
